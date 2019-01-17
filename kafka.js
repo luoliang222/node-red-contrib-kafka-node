@@ -5,7 +5,7 @@ module.exports = function(RED) {
     /*
      *   Kafka Producer
      *   Parameters:
-     - topics 
+     - topics
      - zkquorum(example: zkquorum = “[host]:2181")
      */
     function kafkaNode(config) {
@@ -16,7 +16,7 @@ module.exports = function(RED) {
         var node = this;
         var kafka = require('kafka-node');
         var HighLevelProducer = kafka.HighLevelProducer;
-        var Client = kafka.Client;
+        var Client = kafka.KafkaClient;
         var topics = config.topics;
         var client = new Client(clusterZookeeper);
 
@@ -67,13 +67,25 @@ module.exports = function(RED) {
         var node = this;
 
         var kafka = require('kafka-node');
-        var HighLevelConsumer = kafka.HighLevelConsumer;
-        var Client = kafka.Client;
+        var HighLevelConsumer = kafka.Consumer;
+        var Client = kafka.KafkaClient;
         var topics = String(config.topics);
         var clusterZookeeper = config.zkquorum;
         var groupId = config.groupId;
         var debug = (config.debug == "debug");
-        var client = new Client(clusterZookeeper);
+
+        var zkOptions = {};
+        if(config.sessionTimeout != '')
+        {
+            try {
+                zkOptions.sessionTimeout = parseInt(config.sessionTimeout);
+            }
+            catch(e){
+                node.error(e);
+            }
+        }
+
+        var client = new Client(clusterZookeeper, null, zkOptions);
 
         var topicJSONArry = [];
 
@@ -103,6 +115,15 @@ module.exports = function(RED) {
             autoCommitMsgCount: 10
         };
 
+        if(config.fetchMaxBytes != '')
+        {
+            try {
+                options.fetchMaxBytes = parseInt(config.fetchMaxBytes);
+            }
+            catch(e){
+                node.error(e);
+            }
+        }
 
         try {
             var consumer = new HighLevelConsumer(client, topics, options);
@@ -118,7 +139,7 @@ module.exports = function(RED) {
                 node.send(msg);
             });
 
-            
+
             consumer.on('error', function (err) {
                console.error(err);
             });
