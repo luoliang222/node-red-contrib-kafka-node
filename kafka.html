@@ -1,5 +1,5 @@
 <script type="text/javascript">
-    RED.nodes.registerType('kafka',{
+    RED.nodes.registerType('kafka out',{
         category: 'output',
         color: '#FFFFFF',
         defaults: {
@@ -12,15 +12,15 @@
         icon: "kafka.png",
         align: "right",
         label: function() {
-            return this.name||"kafka";
+            return this.name||"kafka out";
         }
     });
 </script>
 
-<script type="text/x-red" data-template-name="kafka">
+<script type="text/x-red" data-template-name="kafka out">
     <div class="form-row">
         <label for="node-input-zkquorum"><i class="icon-tag"></i>ZK Quorum</label>
-        <input type="text" id="node-input-zkquorum" placeholder="ZK Quorum">
+        <input type="text" id="node-input-zkquorum" placeholder="BrokerHost:port">
     </div>
 
     <div class="form-row">
@@ -35,7 +35,7 @@
 
 </script>
 
-<script type="text/x-red" data-help-name="kafka">
+<script type="text/x-red" data-help-name="kafka out">
     <p>A simple Kafka producer node.</p>
     <p><b>ZooKeeper Quorum</b>  <i>The ZooKeeper quorum of Kafka cluster.</i></p>
     <p><b>Topic(s)</b> <i>The topic(s) of message to produce.</i></p>
@@ -57,13 +57,15 @@ Topic(s) = "topic1, topic2, topic3"
             topics: {value:"", required: true},
             groupId:{value:"", required: true},
             debug: {value:""},
-            autoCommit:{value:true, required: true}
+            autoCommit:{value:true, required: true},
+            fetchMaxBytes: {value:1024 * 1024},
+            sessionTimeout: {value:""}
         },
         inputs:0,
         outputs:1,
         icon: "kafka.png",
         label: function() {
-            return this.name||"kafka";
+            return this.name||"kafka in";
         }
     });
 </script>
@@ -71,7 +73,7 @@ Topic(s) = "topic1, topic2, topic3"
 <script type="text/x-red" data-template-name="kafka in">
     <div class="form-row">
         <label for="node-input-zkquorum"><i class="icon-tag"></i>ZK Quorum</label>
-        <input type="text" id="node-input-zkquorum" placeholder="ZK Quorum">
+        <input type="text" id="node-input-zkquorum" placeholder="BrokerHost:port">
     </div>
 
     <div class="form-row">
@@ -79,13 +81,21 @@ Topic(s) = "topic1, topic2, topic3"
         <input type="text" id="node-input-topics" placeholder="Topic">
     </div>
 
-      <div class="form-row">
+    <div class="form-row">
         <label for="node-input-groupId"><i class="icon-tag"></i>GroupId</label>
         <input type="text" id="node-input-groupId" placeholder="GroupId">
     </div>
       <div class="form-row">
         <label for="node-input-autoCommit"><i class="icon-tag"></i>Auto Commit</label>
         <input type="checkbox" id="node-input-autoCommit"  style="display: inline-block; width: auto; vertical-align: top;" placeholder="Auto Commit">
+    </div>
+    <div class="form-row">
+        <label for="node-input-fetchMaxBytes"><i class="icon-tag"></i>Fetch Max Bytes</label>
+        <input type="text" id="node-input-fetchMaxBytes"  style="display: inline-block; width: auto; vertical-align: top;" placeholder="Fetch Max Bytes (integer)">
+    </div>
+    <div class="form-row">
+        <label for="node-input-sessionTimeout"><i class="icon-tag"></i>Zookeeper sessionTimeout</label>
+        <input type="text" id="node-input-sessionTimeout"  style="display: inline-block; width: auto; vertical-align: top;" placeholder="sessionTimeout (integer)">
     </div>
     <div class="form-row">
         <label for="node-input-debug"><i class="icon-tag"></i>Debug</label>
@@ -98,7 +108,12 @@ Topic(s) = "topic1, topic2, topic3"
     <p><b>ZooKeeper Quorum</b>  <i>The ZooKeeper quorum of Kafka cluster.</i></p>
     <p><b>GroupId</b> <i>The groupId of consumers.</i></p>
     <p><b>Topic(s)</b> <i>The topic(s) of message to produce.</i></p>
-    <p><b>Auto Commit</b> <i>Messages are committed automatically.</i></p>
+    <p><b>Auto Commit</b> <i>Messages are committed automatically.
+        </b>is not Auto Commit, you must call follow when finish some messages:
+        flow.get('kafka-commit').call(msg.group, 1);
+    </i></p>
+    <p><b>fetchMaxBytes</b> <i>Kafka node HighLevelConsummer client fetchMaxBytes</i></p>
+    <p><b>sessionTimeout</b> <i>Zookeeper kafka node client sessionTimeout</i></p>
     <p>Check <b>Debug</b> <i> to print extra information to console.</i></p>
     <pre>
 Example:
