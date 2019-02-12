@@ -14,7 +14,7 @@ module.exports = function(RED) {
         RED.nodes.createNode(this,config);
         var topic = config.topic;
         var clusterZookeeper = config.zkquorum;
-        var debug = config.debug;
+        var debug = (config.debug == true);
         var node = this;
         var kafka = require('kafka-node');
         var HighLevelProducer = kafka.HighLevelProducer;
@@ -29,8 +29,27 @@ module.exports = function(RED) {
         var client = new kafka.KafkaClient(clientOption);
 
         try {
-            this.on("input", function(msg) {
+            // 处理连接状态
+            var timerHandle = setInterval(function(){
+                var broker = client.brokerForLeader();
+                var ready = broker ? broker.isReady() : false;
 
+                if(debug)
+                    node.log('ready = ' + ready + '  connecting = ' + client.connecting);
+                if (ready)
+                    node.status({fill:"green",shape:"dot",text:"node-red:common.status.connected"});
+                else if (client.connecting)
+                    node.status({fill:"yellow",shape:"ring",text:"node-red:common.status.connecting"});
+                else
+                    node.status({fill:"red",shape:"ring",text:"node-red:common.status.disconnected"});
+            }, 1500);
+
+            this.on("close", function(msg) {
+                // 清除定时器
+                clearInterval(timerHandle);
+            });
+
+            this.on("input", function(msg) {
                 var publishTo = function(msg){
                     // 如果不是Buffer，将消息转换为字符串
                     if (msg.payload === null || msg.payload === undefined) {
@@ -107,7 +126,7 @@ module.exports = function(RED) {
         var topics = String(config.topics);
         var clusterZookeeper = config.zkquorum;
         var groupId = config.groupId;
-        var debug = config.debug;
+        var debug = (config.debug == true);
 
         var zkOptions = {
             kafkaHost: clusterZookeeper,
@@ -175,6 +194,8 @@ module.exports = function(RED) {
             var waitMsgList = [];   // 待处理的消息队列
             var currMsg;            // 正在处理的消息
             var consumer = new kafka.Consumer(client, topics, options);
+            consumer.resume();  // 有可能指定的group已暂停消费，默认执行唤醒
+
             var isPaused;
             this.log("kafkaInNode new Consumer");
             if (debug){
@@ -182,24 +203,53 @@ module.exports = function(RED) {
                 this.log("options: " + JSON.stringify(options));
             }
 
-            this.status({fill:"green",shape:"dot",text:"connected to "+ clusterZookeeper});
-            var sendTail = function(){
+            // 处理连接状态
+            var timerHandle = setInterval(function(){
+                var broker = client.brokerForLeader();
+                var ready = broker ? broker.isReady() : false;
+
+                if(debug)
+                    node.log('ready = ' + ready + '  connecting = ' + client.connecting);
+                if (ready)
+                    node.status({fill:"green",shape:"dot",text:"node-red:common.status.connected"});
+                else if (client.connecting)
+                    node.status({fill:"yellow",shape:"ring",text:"node-red:common.status.connecting"});
+                else
+                    node.status({fill:"red",shape:"ring",text:"node-red:common.status.disconnected"});
+            }, 1500);
+            
+            this.on("close", function(msg) {
+                // 清除定时器
+                clearInterval(timerHandle);
+            });
+
+//            node.status({fill:"yellow",shape:"ring",text:"node-red:common.status.connecting"});
+//            node.status({fill:"green",shape:"dot",text:"node-red:common.status.connected"});
+//            node.status({fill:"red",shape:"ring",text:"node-red:common.status.disconnected"});
+
+//            this.status({fill:"gray", shape:"dot", text:"connected to "+ clusterZookeeper});
+//            this.status({fill:"green", shape:"dot", text:"connected to "+ clusterZookeeper});
+
+            var sendNext = function(){
                 if (currMsg)
                     return;     // 当前消息未处理完，暂不能发送
-                currMsg = waitMsgList.pop();
-                node.send(currMsg);
+                if (waitMsgList.length > 0){
+                    currMsg = waitMsgList[0];
+                    waitMsgList.splice(0, 1);
+                    node.send(currMsg);
+                }
             }
 
-            var pushToList = function(msg){
+            var onNewMsg = function(msg){
                 if (config.autoCommit)
                     node.send(msg);
                 else {
                     waitMsgList.push(msg);
-                    if (!currMsg)
-                        sendTail();     // 如果正在处理的消息，则发送队列尾部
+                    sendNext(); // 发送下一条消息
 
+                    // 如果等待队列超过最大数量，则暂停消费
                     if (waitMsgList.length > 10 && !isPaused){
-                        consumer.pause();   // 如果等待队列超过最大数量，暂停消费
+                        consumer.pause();
                         isPaused = true;
                         if (debug)
                            node.log('kafka in debug ===> paused');
@@ -222,7 +272,7 @@ module.exports = function(RED) {
                 else
                 {
                     if (debug)
-                        node.log('kafka in debug ===> on call commit ok, len=' + waitMsgList.length);
+                        node.log('kafka in debug ===> on call commit, waiting =' + waitMsgList.length);
 
                     currMsg = null;     // 清除当前消息
                     if (waitMsgList.length == 0){
@@ -239,11 +289,11 @@ module.exports = function(RED) {
                                     node.log('kafka in debug ===> resumed');
                             }
                             if (debug)
-                                node.log('kafka in debug ===> on kafka commit! ' + JSON.stringify(data));
+                                node.log('kafka in debug ===> on kafka commit ok! ' + JSON.stringify(data));
                         });
                     }
-                    else {
-                        sendTail();
+                    else {// 发送下一个等待的消息
+                        sendNext();
                     }
                 }
             };
@@ -253,6 +303,7 @@ module.exports = function(RED) {
             flow.set("kafka-commit", kafkaCommit, groupId);
             node.log("LL +++++++ set flow context (kafka-commit + \"" + groupId + "\") ==> func()");
 
+            // on -- 消费
             consumer.on('message', function (message) {
                 if (debug) {
                     var msgstring = JSON.stringify(message);
@@ -270,9 +321,10 @@ module.exports = function(RED) {
                     msg.payload = msg.payload.toString();
                 }
 
-                pushToList(msg);
+                onNewMsg(msg);
             });
 
+            // on 错误处理
             consumer.on('error', function (err) {
                 node.error('kafkaInNode Error: ' + err);
             });
