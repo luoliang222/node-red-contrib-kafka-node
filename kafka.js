@@ -5,6 +5,7 @@ module.exports = function(RED) {
     "use strict";
     var isUtf8 = require('./is-utf8');
     var fs = require('fs');
+    var fspath = require("path");
 
     /*
      *   Kafka Producer
@@ -115,9 +116,12 @@ module.exports = function(RED) {
     //
     function OffsetStorage(host, group){
         var current = {};
+        var offsetPath = RED.settings.userDir + '/kafkaOffset';
+        console.log("KAFKA OFFSETDIR --------------------- :" + offsetPath);
+
         // 检查目录是否存在，如果没有则创建
-        if (!fs.existsSync("./offset")){
-            fs.mkdir("./offset", function(err){
+        if (!fs.existsSync(offsetPath)){
+            fs.mkdir(offsetPath, function(err){
                 if (err) {
                     return console.error(err);
                 }
@@ -126,7 +130,8 @@ module.exports = function(RED) {
 
         function buildFileName(host, topic, group){
             var newHost = host.replace(/[.: ,，；;]/g, "_");
-            return './offset/' + newHost + '_' + topic + '_' + group + '.txt';
+            var name = offsetPath + '/' + newHost + '_' + topic + '_' + group + '.txt';
+            return name;
         }
 
         // 构建文件名
