@@ -29,19 +29,39 @@ module.exports = function(RED) {
         if (debug){
             node.log('kafkaOutNode new Client: ' + JSON.stringify(clientOption));
         }
-        var client = new kafka.KafkaClient(clientOption);
 
         try {
+            var client = new kafka.KafkaClient(clientOption);
+            var producer;
+            node.status({fill:"yellow",shape:"dot",text:"connected to "+brokerIPAndPort});
+    
             // 处理连接状态
+            var connectTimeout = 20;
             var timerHandle = setInterval(function(){
                 var broker = client.brokerForLeader();
                 var ready = broker ? broker.isReady() : false;
+                var connecting = client.connecting;
+
+                if (!ready){// 超过30秒连不上，则重新创建client对象
+                    connectTimeout --;
+                    if (connectTimeout < 0){
+                        node.log('Kafka Out --- reCreate client');
+                        client.close();
+                        client = new kafka.KafkaClient(clientOption);
+                        if (producer){
+                            producer.close();
+                            producer = null;
+                        }
+                        node.status({fill:"yellow",shape:"dot",text:"connected to "+brokerIPAndPort});
+                        connectTimeout = 20;
+                    }
+                }
 
                 if(debug)
-                    node.log('ready = ' + ready + '  connecting = ' + client.connecting);
+                    node.log('connected = ' + ready + (connecting ? '  is_connecting ' + connectTimeout : ''));
                 if (ready)
                     node.status({fill:"green",shape:"dot",text:"node-red:common.status.connected"});
-                else if (client.connecting)
+                else if (connecting)
                     node.status({fill:"yellow",shape:"ring",text:"node-red:common.status.connecting"});
                 else
                     node.status({fill:"red",shape:"ring",text:"node-red:common.status.disconnected"});
@@ -79,6 +99,8 @@ module.exports = function(RED) {
                         payloads = [{topic: topics, messages: msg.payload}];
                     }
 
+                    if (!producer)
+                        producer = new HighLevelProducer(client);
                     producer.send(payloads, function(err, data){
                         if (err){
                             node.error(err);
@@ -105,8 +127,6 @@ module.exports = function(RED) {
         if (debug){
             node.log('kafkaOutNode new HighLevelProducer ...');
         }
-        var producer = new HighLevelProducer(client);
-        this.status({fill:"green",shape:"dot",text:"connected to "+brokerIPAndPort});
     }
 
     RED.nodes.registerType("kafka out", kafkaOutNode);
@@ -214,7 +234,7 @@ module.exports = function(RED) {
 
         // 构造偏移存储对象
         var storage = new OffsetStorage(brokerIPAndPort, topics, groupId);
-        var zkOptions = {
+        var clientOption = {
             // broker 的地址
             kafkaHost: brokerIPAndPort,
         };
@@ -223,7 +243,7 @@ module.exports = function(RED) {
         if(config.sessionTimeout != '')
         {
             try {
-                zkOptions.requestTimeout = parseInt(config.sessionTimeout);
+                clientOption.requestTimeout = parseInt(config.sessionTimeout);
             }
             catch(e){
                 node.error(e);
@@ -231,10 +251,10 @@ module.exports = function(RED) {
         }
 
         if (debug){
-            node.log('kafkaInNode new Client: ' + JSON.stringify(zkOptions));
+            node.log('kafkaInNode new Client: ' + JSON.stringify(clientOption));
         }
 
-        var client = new kafka.KafkaClient(zkOptions);
+        var client = new kafka.KafkaClient(clientOption);
         var topicJSONArry = [];
 
         // check if multiple topics
@@ -437,25 +457,38 @@ module.exports = function(RED) {
             }
 
             // 处理连接状态
+            var connectTimeout = 20;
             var timerHandle = setInterval(function(){
                 var broker = client.brokerForLeader();
                 var ready = broker ? broker.isReady() : false;
+                var connecting = client.connecting;
+
+                if (!ready){// 超过30秒连不上，则重新创建client对象
+                    connectTimeout --;
+                    if (connectTimeout < 0){
+                        node.log('Kafka In --- reCreate client');
+                        if (consumer){
+                            consumer.close();
+                            consumer = null;    // 如果已断开的，则清除consumer
+                        }
+                        client.close();
+                        client = new kafka.KafkaClient(clientOption);
+                        node.status({fill:"yellow",shape:"dot",text:"connected to "+brokerIPAndPort});
+                        connectTimeout = 20;
+                    }
+                }
 
                 if(debug)
-                    node.log('connected = ' + ready + (client.connecting ? '  is_connecting': ''));
+                    node.log('connected = ' + ready + (connecting ? '  is_connecting ' + connectTimeout : ''));
                 if (ready){
                     if (!consumer)
                         initConsumer();
                     node.status({fill:"green",shape:"dot",text:"node-red:common.status.connected"});
                 }
-                else if (client.connecting)
+                else if (connecting)
                     node.status({fill:"yellow",shape:"ring",text:"node-red:common.status.connecting"});
                 else{
                     node.status({fill:"red",shape:"ring",text:"node-red:common.status.disconnected"});
-                    if (consumer){
-                        consumer.close();
-                        consumer = null;    // 如果已断开的，则清除consumer
-                    }
                 }
             }, 1500);
             

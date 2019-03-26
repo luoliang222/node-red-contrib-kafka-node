@@ -19,7 +19,7 @@
 
 <script type="text/x-red" data-template-name="kafka out">
     <div class="form-row">
-        <label for="node-input-zkquorum"><i class="icon-tag"></i>ZK Quorum</label>
+        <label for="node-input-zkquorum"><i class="icon-tag"></i>BrokerHost</label>
         <input type="text" id="node-input-zkquorum" placeholder="BrokerHost:port">
     </div>
 
@@ -37,7 +37,7 @@
 
 <script type="text/x-red" data-help-name="kafka out">
     <p>A simple Kafka producer node.</p>
-    <p><b>ZooKeeper Quorum</b>  <i>The ZooKeeper quorum of Kafka cluster.</i></p>
+    <p><b>broker host</b>  <i>The host of broker. example: 10.0.0.1:9092</i></p>
     <p><b>Topic(s)</b> <i>The topic(s) of message to produce.</i></p>
     <p>Check <b>Debug</b> <i> to print extra information to console.</i></p>
     <pre>
@@ -72,7 +72,7 @@ Topic(s) = "topic1, topic2, topic3"
 
 <script type="text/x-red" data-template-name="kafka in">
     <div class="form-row">
-        <label for="node-input-zkquorum"><i class="icon-tag"></i>ZK Quorum</label>
+        <label for="node-input-zkquorum"><i class="icon-tag"></i>BrokerHost</label>
         <input type="text" id="node-input-zkquorum" placeholder="BrokerHost:port">
     </div>
 
@@ -105,7 +105,7 @@ Topic(s) = "topic1, topic2, topic3"
 
 <script type="text/x-red" data-help-name="kafka in">
     <p>A simple Kafka consumer node.</p>
-    <p><b>ZooKeeper Quorum</b>  <i>The ZooKeeper quorum of Kafka cluster.</i></p>
+    <p><b>BrokerHost</b>  <i>The Host of Kafka Broker. like: 10.0.0.1:9092</i></p>
     <p><b>GroupId</b> <i>The groupId of consumers.</i></p>
     <p><b>Topic(s)</b> <i>The topic(s) of message to produce.</i></p>
     <p><b>Auto Commit</b> <i>Messages are committed automatically.
