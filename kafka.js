@@ -354,7 +354,7 @@ module.exports = function(RED) {
             // 上次成功提交的时间
             var prvCommitTime = Date.now();
             // retry 如果为true则重新发送，否则消费下一条消息
-            var kafkaCommit = function(retry){
+            var kafkaCommit = function(retry, forceToLast){
                 if (!consumer || config.autoCommit){// 未建立连接，或者是自动提交的，直接返回
                     return;
                 }
@@ -372,6 +372,11 @@ module.exports = function(RED) {
                 else{
                     var topic = currMsg.topic;
                     var offset = currMsg.offset;
+					if (forceToLast && waitMsgList.length > 0){
+						offset = waitMsgList[ waitMsgList.length - 1 ].offset;
+						waitMsgList = [];
+						node.log('force commit to ==>' + offset);
+					}
                     if (debug)
                         node.log('kafka in debug ===> on call commit, waiting =' + waitMsgList.length + ' topic = ' + topic + ' offset = ' + offset);
                     currMsg = null;     // 清除当前消息
