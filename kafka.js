@@ -118,12 +118,7 @@ module.exports = function(RED) {
                     });
                 }
 
-                if ( msg.hasOwnProperty("payload")) {
-                    if (msg.hasOwnProperty("topic") && (typeof msg.topic === "string") && (msg.topic !== "")) { // topic must exist
-                        publishTo(msg);  // send the message
-                    }
-                    else { node.warn(RED._("mqtt.errors.invalid-topic")); }
-                }
+				publishTo(msg);  // send the message
             });
         }
         catch(e) {
@@ -375,7 +370,7 @@ module.exports = function(RED) {
 
                 if (retry){
                     if (debug)
-                        node.log('debug: on kafka retry msg===> ' + currMsg);
+                        node.log('debug: on kafka retry msg===> ' + JSON.stringify(currMsg));
                     node.send(currMsg);     // 重新发送
                 }
                 else{
