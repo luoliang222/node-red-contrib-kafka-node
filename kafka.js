@@ -65,11 +65,15 @@ module.exports = function(RED) {
                     node.status({fill:"yellow",shape:"ring",text:"node-red:common.status.connecting"});
                 else
                     node.status({fill:"red",shape:"ring",text:"node-red:common.status.disconnected"});
-            }, 1500);
+            }, 3000);
 
             this.on("close", function(msg) {
                 // 清除定时器
                 clearInterval(timerHandle);
+				if (producer)
+					producer.close();
+				if(client)
+					client.close();
             });
 
             this.on("input", function(msg) {
@@ -103,11 +107,11 @@ module.exports = function(RED) {
                         producer = new HighLevelProducer(client);
                     producer.send(payloads, function(err, data){
                         if (err){
-                            node.error(err);
+                            node.error('send err: ' + err);
                         }
                         else{
                             if (debug)
-                                node.log("kafka out debug ===> Sended: " + msg.payload);
+                                node.log("debug：Sended ===> " + msg.payload);
                         }
                     });
                 }
@@ -228,6 +232,7 @@ module.exports = function(RED) {
         var node = this;
         var kafka = require('kafka-node');
         var topics = String(config.topics);
+		var topicsMap = {};
         var brokerIPAndPort = config.zkquorum;
         var groupId = config.groupId;
         var debug = (config.debug == true);
@@ -279,7 +284,9 @@ module.exports = function(RED) {
 
         // 初始化读取offset
         for(var i=0; i<topics.length; i++){
-            storage.initLoad(topics[i].topic);
+			var topic = topics[i].topic;
+			topicsMap[topic] = topics[i];
+            storage.initLoad(topic);
         }
 
         var options = {
@@ -346,7 +353,7 @@ module.exports = function(RED) {
                             consumer.pause();
                         isPaused = true;
                         if (debug)
-                           node.log('kafka in debug ===> paused');
+                           node.log('debug: consume paused ===> waitMsgList.length = ' + waitMsgList.length);
                     }
                 }
             }
@@ -354,7 +361,7 @@ module.exports = function(RED) {
             // 上次成功提交的时间
             var prvCommitTime = Date.now();
             // retry 如果为true则重新发送，否则消费下一条消息
-            var kafkaCommit = function(retry, forceToLast){
+            var kafkaCommit = function(retry){
                 if (!consumer || config.autoCommit){// 未建立连接，或者是自动提交的，直接返回
                     return;
                 }
@@ -366,19 +373,14 @@ module.exports = function(RED) {
 
                 if (retry){
                     if (debug)
-                        node.log('kafka in debug ===> on kafka retry msg! ' + currMsg);
+                        node.log('debug: on kafka retry msg===> ' + currMsg);
                     node.send(currMsg);     // 重新发送
                 }
                 else{
                     var topic = currMsg.topic;
                     var offset = currMsg.offset;
-					if (forceToLast && waitMsgList.length > 0){
-						offset = waitMsgList[ waitMsgList.length - 1 ].offset;
-						waitMsgList = [];
-						node.log('force commit to ==>' + offset);
-					}
                     if (debug)
-                        node.log('kafka in debug ===> on call commit, waiting =' + waitMsgList.length + ' topic = ' + topic + ' offset = ' + offset);
+                        node.log('debug: begin commit ===> waiting =' + waitMsgList.length + ' topic = ' + topic + ' offset = ' + offset);
                     currMsg = null;     // 清除当前消息
 
                     // 全部消费完毕，或者超过1s钟，都立即保存当前的消费情况
@@ -403,7 +405,7 @@ module.exports = function(RED) {
                             }
         
                             if (debug)
-                                node.log('kafka in debug ===> on kafka commit ok! At ' + topic + ':' + offset);
+                                node.log('debug: commit ok! ===> [' + topic + '].offset =' + offset);
                         });
                     }
                     else {// 发送下一个等待的消息
@@ -420,7 +422,8 @@ module.exports = function(RED) {
             // on -- 消费
             function initConsumer(){
                 node.log('initConsumer ...');
-                // 设置拉取得初始offset
+								
+                // 初始化offset
                 for(var i=0; i<topics.length; i++){
                     var topic = topics[i].topic;
                     // 如果存储的偏移是有效的，则读取下一条
@@ -428,17 +431,60 @@ module.exports = function(RED) {
                     var offset = storage.get(topic);
                     topics[i].offset = offset + 1;
                     
-                    if(debug){
-                        node.log('！！！set ' + topic + ' from ' + topics[i].offset);
-                    }
+//                    if(debug){
+//                        node.log('current offset [' + topic + '] = ' + topics[i].offset);
+//                    }
+					
+					// 矫正offset在范围内
+					// 如果当前offset<范围，则设置到最早一条
+					// 如果当前offset>范围，则设置到最后一条
+					var currTopic = topics[i];
+					var offset = new kafka.Offset(client);
+					offset.fetchEarliestOffsets([topic], function (error, offsets) {
+						if (error)
+							node.log('fetchEarliestOffsets err ==>' + error);
+						else{
+							if(debug){
+								node.log('fetchEarliestOffsets offset is ==>' + offsets[topic][0]);
+							}
+							if(currTopic.offset < offsets[topic][0]){
+								currTopic.offset = offsets[topic][0];
+								storage.set(topic, offsets[topic][0]);
+							}
+						}
+					});
+					
+					offset.fetchLatestOffsets([topic], function (error, offsets) {
+						if (error)
+							node.log('fetchLatestOffsets err ==>' + error);
+						else{
+							if(debug){
+								node.log('fetchLatestOffsets offset is ==>' + offsets[topic][0]);
+							}
+							if(currTopic.offset > offsets[topic][0]){
+								currTopic.offset = offsets[topic][0];
+								storage.set(topic, offsets[topic][0]);
+							}
+						}
+					});
                 }
+				
+				
+                node.log('initConsumer ... new kafka.Consumer');
+				if (consumer){
+					consumer.close();
+				}
                 consumer = new kafka.Consumer(client, topics, options);
                 consumer.resume();  // 有可能指定的group已暂停消费，默认执行唤醒
 
                 consumer.on('message', function (message) {
                     if (debug) {
                         var msgstring = JSON.stringify(message);
-                        node.log('kafka in debug ===> on message' + msgstring);
+                        node.log('debug: on message ===>' + msgstring);
+						
+						var t = topicsMap[message.topic];
+						if (t)
+							node.log('debug: current offset [' + t.topic + '] = ' + t.offset);
                     }
 
                     var msg = { };
@@ -459,6 +505,9 @@ module.exports = function(RED) {
                 consumer.on('error', function (err) {
                     node.error('kafkaInNode Error: ' + err);
                 });
+				consumer.on('offsetOutOfRange', function (err) {
+                    node.error('kafkaInNode offsetOutOfRange: ' + err);					
+				});
             }
 
             // 处理连接状态
@@ -471,7 +520,8 @@ module.exports = function(RED) {
                 if (!ready){// 超过30秒连不上，则重新创建client对象
                     connectTimeout --;
                     if (connectTimeout < 0){
-                        node.log('Kafka In --- reCreate client');
+						if (debug)
+							node.log('debug: reCreate client');
                         if (consumer){
                             consumer.close();
                             consumer = null;    // 如果已断开的，则清除consumer
@@ -495,11 +545,15 @@ module.exports = function(RED) {
                 else{
                     node.status({fill:"red",shape:"ring",text:"node-red:common.status.disconnected"});
                 }
-            }, 1500);
+            }, 3000);
             
             this.on("close", function(msg) {
                 // 清除定时器
                 clearInterval(timerHandle);
+				if (consumer)
+					consumer.close();
+				if(client)
+					client.close();
             });
 
         }
