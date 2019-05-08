@@ -67,13 +67,15 @@ module.exports = function(RED) {
                     node.status({fill:"red",shape:"ring",text:"node-red:common.status.disconnected"});
             }, 3000);
 
-            this.on("close", function(msg) {
+            this.on("close", function(done) {
                 // 清除定时器
                 clearInterval(timerHandle);
 				if (producer)
 					producer.close();
 				if(client)
 					client.close();
+				producer = client = null;
+				done();
             });
 
             this.on("input", function(msg) {
@@ -547,13 +549,15 @@ module.exports = function(RED) {
                 }
             }, 3000);
             
-            this.on("close", function(msg) {
+            this.on("close", function(done) {
                 // 清除定时器
                 clearInterval(timerHandle);
 				if (consumer)
 					consumer.close();
 				if(client)
 					client.close();
+				consumer = client = null;
+				done();
             });
 
         }
